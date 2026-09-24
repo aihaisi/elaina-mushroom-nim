@@ -370,8 +370,8 @@ if (!spawnMatch) {
   fail('未能在 index.html 中找到 MUSHROOM-SPAWN 代码块');
 } else {
   const spawn = new Function(`${spawnMatch[1]}
-    return { pickPlateCount, buildCountPicker, chanceToWeight,
-             ONE_MUSHROOM_CHANCE, ONE_MUSHROOM_BOOST, MIN_PLATES, PLATE_SPAN };`)();
+    return { pickPlateCount, pickMushroomCount, buildCountPicker, buildPlatePicker, chanceToWeight,
+             ONE_MUSHROOM_CHANCE, ONE_MUSHROOM_BOOST, MIN_PLATES, MAX_PLATES, PLATE_SPAN, PLATE_WEIGHTS };`)();
 
   // ── I-1 可读规则 vs 求解器 ────────────────────────────────
   function runOfOnes(a, j) { let r = 0; while (j + r < a.length && a[j + r] === 1) r++; return r; }
@@ -417,7 +417,7 @@ if (!spawnMatch) {
   const GRID = 100000;
   const counts = new Map();
   for (let k = 0; k < GRID; k++) {
-    const v = spawn.pickPlateCount((k + 0.5) / GRID);
+    const v = spawn.pickMushroomCount((k + 0.5) / GRID);
     counts.set(v, (counts.get(v) || 0) + 1);
   }
   const keys = [...counts.keys()].sort((x, y) => x - y);
@@ -435,8 +435,8 @@ if (!spawnMatch) {
   // 钉死产品契约的字面量 —— 故意不引用 spawn.ONE_MUSHROOM_CHANCE：
   // 拿配置常量去断言配置常量是恒真式（改配置时断言跟着一起变，永远通过），
   // 上一轮的盘子数断言就踩过这个坑。要改概率，就得连这里一起改，是被刻意设计的摩擦。
-  const EXPECTED_ONE_CHANCE = 0.35;                       // P(a_i = 1) = 35%
-  const EXPECTED_OTHER_CHANCE = (1 - EXPECTED_ONE_CHANCE) / 5;   // 其余五档各 13%
+  const EXPECTED_ONE_CHANCE = 0.45;                       // P(a_i = 1) = 45%
+  const EXPECTED_OTHER_CHANCE = (1 - EXPECTED_ONE_CHANCE) / 5;   // 其余五档各 11%
 
   const pOne = pOf(1);
   const boostRatio = pOne / BASE_P;
@@ -452,36 +452,59 @@ if (!spawnMatch) {
         + `实际 ${(pOf(v) * 100).toFixed(2)}%`);
     }
   }
-  // 「目标概率 → 权重倍率」的反解必须自洽（35% ⇒ 35/13，最容易在这一步算错）
+  // 「目标概率 → 权重倍率」的反解必须自洽（45% ⇒ 45/11，最容易在这一步算错）
   const sanityWeight = spawn.chanceToWeight(EXPECTED_ONE_CHANCE, 1, 6);
-  if (Math.abs(sanityWeight - 35 / 13) > 1e-9) {
-    fail(`chanceToWeight(0.35) 应为 35/13 ≈ 2.6923，实际 ${sanityWeight}`);
+  if (Math.abs(sanityWeight - 45 / 11) > 1e-9) {
+    fail(`chanceToWeight(0.45) 应为 45/11 ≈ 4.0909，实际 ${sanityWeight}`);
   }
   // 抽样器单调性：累积分布映射出的结果必须随 rand 单调不减（否则会出现"随机数越大点数越小"）
   let lastVal = -Infinity, monotone = true;
   for (let k = 0; k < 5000; k++) {
-    const v = spawn.pickPlateCount(k / 5000);
+    const v = spawn.pickMushroomCount(k / 5000);
     if (v < lastVal) monotone = false;
     lastVal = v;
   }
   if (!monotone) fail('出盘抽样器非单调：rand 增大时点数反而变小');
 
-  // 盘子数取值域：钉死产品契约 n ∈ [3,5]（字面量，不是拿 MIN_PLATES/PLATE_SPAN 自证 ——
-  // 那样的断言是恒真式：把上界从 3 悄悄改成 2 也照样通过）。
+  // ── I-3 盘子数 n 的分布 ────────────────────────────────────
+  // 盘子数取值域：钉死产品契约为字面量 [3,4,5,6]（不是拿 MIN_PLATES/PLATE_SPAN 自证 ——
+  // 那样的断言是恒真式：把上界从 6 悄悄改成 5 也照样通过）。
   // 若确实要改开盘盘子数，这里会失败，属于"故意让测试提醒你同步文档与 README"。
-  const ns = new Set();
-  for (let k = 0; k < GRID; k++) ns.add(spawn.MIN_PLATES + Math.floor(((k + 0.5) / GRID) * spawn.PLATE_SPAN));
-  const nsSorted = [...ns].sort((x, y) => x - y);
-  const EXPECTED_PLATE_RANGE = [3, 4, 5];
+  const nsCounts = new Map();
+  for (let k = 0; k < GRID; k++) {
+    const v = spawn.pickPlateCount((k + 0.5) / GRID);
+    nsCounts.set(v, (nsCounts.get(v) || 0) + 1);
+  }
+  const nsSorted = [...nsCounts.keys()].sort((x, y) => x - y);
+  const EXPECTED_PLATE_RANGE = [3, 4, 5, 6];
   if (nsSorted.length !== EXPECTED_PLATE_RANGE.length
     || nsSorted.some((v, i) => v !== EXPECTED_PLATE_RANGE[i])) {
     fail(`开盘盘子数取值域应为 [${EXPECTED_PLATE_RANGE.join(', ')}]，实际 [${nsSorted.join(', ')}]`
       + '（若是有意修改，请同步更新断言与 README）');
   }
+  // n=3 必须"被削弱但不能被删"：占比落在窄区间内（约 12.7%）。
+  // 钉字面量区间而非引用 PLATE_WEIGHTS —— 后者是恒真式。
+  const pN3 = (nsCounts.get(3) || 0) / GRID;
+  if (pN3 <= 0) fail('n = 3 被完全删除了（用户要求保留短局变体，不可删除）');
+  if (pN3 < 0.10 || pN3 > 0.16) {
+    fail(`n = 3 的占比应在 10%~16%（削弱但保留），实际 ${(pN3 * 100).toFixed(2)}%`);
+  }
+  // 盘子数概率和必须为 1
+  const nSum = nsSorted.reduce((s, v) => s + (nsCounts.get(v) || 0) / GRID, 0);
+  if (Math.abs(nSum - 1) > 1e-3) fail(`盘子数概率和不为 1：${nSum.toFixed(6)}`);
+  // 盘子数抽样器也要单调
+  let lastN = -Infinity, monotoneN = true;
+  for (let k = 0; k < 5000; k++) {
+    const v = spawn.pickPlateCount(k / 5000);
+    if (v < lastN) monotoneN = false;
+    lastN = v;
+  }
+  if (!monotoneN) fail('盘子数抽样器非单调：rand 增大时盘子数反而变小');
 
   spawnStats = {
     pOne, boostRatio, exhaustBoards, bigRuleChecked,
     plateRange: `${nsSorted[0]}~${nsSorted[nsSorted.length - 1]}`,
+    pN3,
     // 报告行必须反映真实结果：早先这里写死了 "✓ ...完全一致"，
     // 于是断言失败时报表格依然显示通过 —— 一份永远显示成功的报告比没有报告更糟。
     ruleOk: exhaustBad === 0 && bigRuleBad === 0,
@@ -508,9 +531,13 @@ console.log(spawnStats
   : '  可读奇偶规则交叉验证    : — 未执行（缺 MUSHROOM-SPAWN 块）');
 console.log(spawnStats
   ? `  出盘「1 蘑菇」出现率    : ${(spawnStats.pOne * 100).toFixed(2)}%`
-    + `（基准 1/6 = 16.67% 的 ${(spawnStats.boostRatio * 100).toFixed(1)}%），`
-    + `盘子数 n ∈ ${spawnStats.plateRange}${spawnStats.plateRangeOk ? '' : ' ✗'}`
+    + `（基准 1/6 = 16.67% 的 ${(spawnStats.boostRatio * 100).toFixed(1)}%）`
   : '  出盘「1 蘑菇」出现率    : — 未执行');
+console.log(spawnStats
+  ? `  出盘盘子数分布          : n ∈ ${spawnStats.plateRange}${spawnStats.plateRangeOk ? '' : ' ✗'}`
+    + `，其中 n=3 占 ${(spawnStats.pN3 * 100).toFixed(2)}%`
+    + `（期望削弱到 10%~16% 但不得删除）`
+  : '  出盘盘子数分布          : — 未执行');
 console.log(failures === 0
   ? '  结果                    : ✓ 全部通过，AI 走法在所有被检状态上均为最优，认输门控行为正确'
   : `  结果                    : ✗ 失败 ${failures} 项`);

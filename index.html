@@ -348,27 +348,39 @@
 
         /* ==== MUSHROOM-SPAWN BEGIN ==== */
         // ── 出盘分布（唯一的调参入口）────────────────────────────────────────
-        // 本作的"转机"全在「只剩 1 个蘑菇」的盘子上：
-        //   · a[j] === 1 的盘轮到时无子可选，只能取走 —— 它本身不产生决策点；
-        //   · 但连续几条这样的盘串起来，恰恰决定了前面某个 >= 2 的盘
-        //     该"取空"还是"只留 1 个"（判据见下方 SOLVER 块与 verify-ai.mjs 的 H 节）。
-        // 本次把 a_i === 1 的出现率从基准的 1/6 ≈ 16.67% 直接提到 35%，
-        // 其余五个点数等比例吸收，总概率仍为 1（六档概率和恒为 100%）。
         //
-        // 取舍（数值见 README 的对照表，全为穷举加权精确值）：
-        //   收益 · 开盘含 1 蘑菇盘 58% → 81%，1 蘑菇盘数/局 0.80 → 1.40，转机更常见；
-        //         开局必败（"看穿认输"可用）16.5% → 25.1%。
-        //   代价 · 抉择点（>= 2 的盘）3.20 → 2.60 个/局（−19%），
-        //         因为 1 蘑菇盘轮到就没得选，提高它必然稀释决策次数。
+        // 【动脑点在哪 —— 穷举 270605 个抉择局面后的结论】
+        //   · 「致胜走法唯一」的比例 = 100%：本作不存在多解局面，玩家不是在做选择，
+        //     而是在查表。当所有盘都 >1 时，82.6% 的唯一解就是「只留 1 个」，
+        //     这是可以背下来的机械规则 ⇒ 玩家玩几局后就"不用动脑子"了。
+        //   · 真正要动脑的只有一种情形：当前盘 >= 2，而其**后面跟着一串 1 蘑菇盘**，
+        //     此时必须数这条 1 链的长度并判奇偶，才能决定"取空"还是"只留 1"。
+        //   ⇒ 调参目标因此不是"决策点更多"，而是「**需要数奇偶的时刻更多、链更长**」。
+        //
+        // 【两个旋钮的实测权衡】
+        //   · 提高 P(a_i=1)：让 1 链更长（数 3 个比数 2 个更容易错），
+        //     但 1 蘑菇盘轮到就没得选，抬高它会让"表态总数"与"真判断次数"一起下降。
+        //     实测 P(1) 35%→50%：真判断 1.118→0.977 次/局，而链≥3 的判断 0.018→0.045。
+        //     即"次数变少、每次更费劲" —— 这是有意的交换，不是 bug。
+        //   · 扩大 n 上限：直接增加盘位，同时抬高"1 链被 >=2 盘截断"的概率，
+        //     是**两头都涨**的旋钮（不像 P(1) 是零和）。
+        //
+        // 【当前取值：n ∈ 3-6 偏长分布 + P(1) = 45%】
+        //   收益 · 1 蘑菇盘 1.40→2.14/局；判断时平均链长 0.53→0.67；
+        //         链≥3 的判断 0.018→0.037（+106%，最费脑的那一类）；
+        //         开局必败（"看穿认输"可用）25.1%→30.9%。
+        //   代价 · 真判断次数微降 4%，平均步数 5.57→6.28（+13%），单局略长。
+        //   保留 · n=3 不删除，但权重压到 0.7（占比约 12.7%，约每 8 局遇到一次），
+        //         让它作为"短局变体"偶尔出现，而不是变成主流。
         //
         // 旋钮刻意写成「目标出现率」而不是权重倍率：调参时脑子里想的是概率，
-        // 反解倍率很容易算错 —— 35% 对应的倍率是 35/13 ≈ 2.692，不是直觉上的 2.1。
-        const ONE_MUSHROOM_CHANCE = 0.35;                                      // P(a_i = 1) = 35%
-        const ONE_MUSHROOM_BOOST = chanceToWeight(ONE_MUSHROOM_CHANCE, 1, 6);  // = 35/13 ≈ 2.6923
+        // 反解倍率很容易算错 —— 45% 对应的倍率是 9，不是直觉上的 3.75。
+        const ONE_MUSHROOM_CHANCE = 0.45;                                      // P(a_i = 1) = 45%
+        const ONE_MUSHROOM_BOOST = chanceToWeight(ONE_MUSHROOM_CHANCE, 1, 6);  // = 45/11 ≈ 4.0909
 
         // 目标概率 → 权重倍率：设 a_i = 1 的权重为 b、其余 k 档各为 1，则
         //     b / (b + k) = p   ⇒   b = k * p / (1 - p)
-        // k = 6 - 1 = 5 档，p = 0.35 ⇒ b = 5 * 0.35 / 0.65 = 35/13。
+        // k = 6 - 1 = 5 档，p = 0.45 ⇒ b = 5 * 0.45 / 0.55 = 45/11 ≈ 4.0909。
         function chanceToWeight(chance, minCount, maxCount) {
             const otherBuckets = maxCount - minCount;             // 除 1 以外的点数档数
             const p = Math.min(Math.max(chance, 0), 0.999);       // 夹住 0/1，避免除零
@@ -398,8 +410,39 @@
             };
         }
 
-        const pickPlateCount = buildCountPicker(1, 6, ONE_MUSHROOM_BOOST);
-        const MIN_PLATES = 3, PLATE_SPAN = 3;   // 盘子数 n ∈ [3, 5]
+        // ── 盘子数 n 的分布（带权）────────────────────────────────────────
+        // 从 [3,5] 均匀扩到 [3,6] 带权：n=3 权重 0.7（削弱但保留），4/5/6 各 1.6。
+        // 归一化后 n=3 占 0.7/5.5 ≈ 12.7%，其余各 ≈ 29.1%。
+        // 做成"权重数组 + 纯函数抽样器"，与上方的点数抽样器同一套写法，同样可被穷举验证。
+        const PLATE_WEIGHTS = [            // n=3 是短局变体：保留但不占主流
+            { n: 3, weight: 0.7 },
+            { n: 4, weight: 1.6 },
+            { n: 5, weight: 1.6 },
+            { n: 6, weight: 1.6 },         // 上限由 5 提到 6：盘位越多，1 链越容易被截断
+        ];
+
+        function buildPlatePicker(weights) {
+            const total = weights.reduce((sum, w) => sum + w.weight, 0);
+            const cumulative = [];
+            let acc = 0;
+            for (const w of weights) {
+                acc += w.weight / total;
+                cumulative.push({ n: w.n, c: acc });
+            }
+            return function pickPlateCount(rand) {
+                for (let i = 0; i < cumulative.length; i++) {
+                    if (rand < cumulative[i].c) return cumulative[i].n;
+                }
+                return weights[weights.length - 1].n;
+            };
+        }
+
+        const pickMushroomCount = buildCountPicker(1, 6, ONE_MUSHROOM_BOOST);
+        const pickPlateCount = buildPlatePicker(PLATE_WEIGHTS);
+        // 盘子数取值域由 PLATE_WEIGHTS 导出（验证器会钉死字面量做交叉检查）
+        const MIN_PLATES = PLATE_WEIGHTS[0].n;
+        const MAX_PLATES = PLATE_WEIGHTS[PLATE_WEIGHTS.length - 1].n;
+        const PLATE_SPAN = MAX_PLATES - MIN_PLATES + 1;
         /* ==== MUSHROOM-SPAWN END ==== */
 
         function initGame() {
@@ -413,10 +456,11 @@
             document.getElementById('btn-surrender').style.display = 'none'; 
             document.getElementById('log').innerHTML = '';
             
-            const n = MIN_PLATES + Math.floor(Math.random() * PLATE_SPAN);
+            // 盘子数按 PLATE_WEIGHTS 带权抽取（n=3 被削弱但保留），每盘蘑菇数用点数抽样器
+            const n = pickPlateCount(Math.random());
             plates = [];
             for (let i = 0; i < n; i++) {
-                plates.push(pickPlateCount(Math.random()));
+                plates.push(pickMushroomCount(Math.random()));
             }
 
             updateStatus();
