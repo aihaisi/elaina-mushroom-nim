@@ -307,9 +307,24 @@ for (const { a, expect } of LUOGU_SAMPLES) {
   if (got === expect) samplePass++;
   else fail(`官方样例不符 [${a}] 期望=${expect} 实际=${got}`);
 }
-// 页面底部的题目出处链接（展示用元素，防止后续改动被误删）
-if (!/id="problem-source"[\s\S]*?luogu\.com\.cn\/problem\/U145698/.test(html)) {
-  fail('页面底部缺少洛谷题目出处链接');
+// 页面底部的题目出处 / 源码仓库链接（展示用元素，防止后续改动被误删）
+const footerMatch = html.match(/id="problem-source"[\s\S]*?<\/footer>/);
+if (!footerMatch) {
+  fail('页面底部缺少题目出处页脚（id="problem-source"）');
+} else {
+  const footer = footerMatch[0];
+  if (!/luogu\.com\.cn\/problem\/U145698/.test(footer)) {
+    fail('页面底部缺少洛谷题目出处链接');
+  }
+  if (!/github\.com\/aihaisi\/elaina-mushroom-nim/.test(footer)) {
+    fail('页面底部缺少 GitHub 仓库链接');
+  }
+  // 展示层元素：洛谷行在上、GitHub 行在下，顺序是需求的一部分
+  const luoguAt = footer.indexOf('luogu.com.cn');
+  const githubAt = footer.indexOf('github.com');
+  if (luoguAt === -1 || githubAt === -1 || githubAt < luoguAt) {
+    fail('页脚链接顺序错误：GitHub 仓库链接应位于洛谷题目链接下方');
+  }
 }
 
 /* ── 报告 ─────────────────────────────────────────────────── */

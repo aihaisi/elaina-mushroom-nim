@@ -135,6 +135,8 @@
             color: #2980b9; border-bottom-style: solid;
             border-bottom-color: #2980b9;
         }
+        #problem-source .source-line { display: block; }
+        #problem-source .source-line + .source-line { margin-top: 5px; }
 
         /* 游戏结算弹窗 */
         #game-over-modal {
@@ -205,8 +207,14 @@
     <div id="log"></div>
 
     <footer id="problem-source">
-        原型题目来自洛谷：
-        <a href="https://www.luogu.com.cn/problem/U145698" target="_blank" rel="noopener noreferrer">U145698 · C. 伊蕾娜取蘑菇</a>
+        <span class="source-line">
+            原型题目来自洛谷：
+            <a href="https://www.luogu.com.cn/problem/U145698" target="_blank" rel="noopener noreferrer">U145698 · C. 伊蕾娜取蘑菇</a>
+        </span>
+        <span class="source-line">
+            项目源码托管于 GitHub：
+            <a href="https://github.com/aihaisi/elaina-mushroom-nim" target="_blank" rel="noopener noreferrer">aihaisi/elaina-mushroom-nim</a>
+        </span>
     </footer>
 
     <div id="game-over-modal">
