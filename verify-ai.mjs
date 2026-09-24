@@ -17,6 +17,10 @@
  *  F. 认输门控流程 —— 用 DOM 桩驱动真实页面脚本，验证「仅开局第一步之前可认输、
  *     判对判胜、判错判负、按钮文案不泄露裁决、走过一步后资格作废」。
  *  G. 官方样例对拍 —— 与洛谷 U145698 题面给出的期望输出逐个比对（外部权威校验）。
+ *  H. 发布副本一致性 —— site/index.html（线上发布源）必须与根 index.html 逐字节相同。
+ *  I. 出盘分布与「1 蘑菇转机」—— ① 把求解器等价改写成可读规则（看紧随其后的连续
+ *     1 蘑菇盘长度的奇偶）并交叉验证；② 断言 a_i = 1 的出现率确实被上调了 20%
+ *     （穷举 rand 网格求精确概率，不用统计抽样，避免随机失败的假警报）。
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -345,6 +349,137 @@ if (existsSync(siteIndexPath)) {
   }
 }
 
+/* ══ I：出盘分布与「1 蘑菇转机」 ════════════════════════════════
+ * 两件事：
+ *  I-1  把 O(n) 递推 lose[j] 改写成一条人能读的规则，并与求解器交叉验证：
+ *         a[j] >= 2                                → lose[j] = false
+ *         a[j] === 1 且这条 1 链被某个 >=2 的盘截断 → lose[j] = (链长 为奇数)
+ *         a[j] === 1 且这条 1 链一直延伸到盘尾      → lose[j] = (链长 为偶数)
+ *       这条规则是"为什么 1 蘑菇盘是转机"的正式解释：轮到你面对一个 >=2 的盘时，
+ *       要数的是紧随其后的连续 1 蘑菇盘长度 —— 奇数就取空，偶数就只留 1 个。
+ *       （末尾全为 1 时奇偶反过来，因为盘空判负把基准翻转了一次。）
+ *  I-2  断言 a_i = 1 的出现率确实比基准上调了 20%。
+ *       概率用穷举 rand 网格求，而不是抽样统计：抽样的方差会让断言偶发失败，
+ *       一个会随机变红的断言等于没有断言。
+ */
+const spawnRe = /\/\* ==== MUSHROOM-SPAWN BEGIN ==== \*\/([\s\S]*?)\/\* ==== MUSHROOM-SPAWN END ==== \*\//;
+const spawnMatch = html.match(spawnRe);
+let spawnStats = null;
+if (!spawnMatch) {
+  fail('未能在 index.html 中找到 MUSHROOM-SPAWN 代码块');
+} else {
+  const spawn = new Function(`${spawnMatch[1]}
+    return { pickPlateCount, buildCountPicker, ONE_MUSHROOM_BOOST, MIN_PLATES, PLATE_SPAN };`)();
+
+  // ── I-1 可读规则 vs 求解器 ────────────────────────────────
+  function runOfOnes(a, j) { let r = 0; while (j + r < a.length && a[j + r] === 1) r++; return r; }
+  function readableRule(a, j) {
+    if (a[j] !== 1) return false;
+    const run = runOfOnes(a, j);
+    return (j + run === a.length) ? (run % 2 === 0) : (run % 2 === 1);
+  }
+  function ruleAgrees(a) {
+    const lose = computeLosingFlags(a);
+    for (let j = 0; j < a.length; j++) if (readableRule(a, j) !== lose[j]) return false;
+    return true;
+  }
+
+  // ① 穷举 n ≤ 6、a_i ∈ [1,6] 的全部盘面（6+36+…+46656 = 55986 个）
+  let exhaustBoards = 0, exhaustBad = 0;
+  for (let n = 1; n <= 6; n++) {
+    const a = new Array(n).fill(1);
+    const total = Math.pow(6, n);
+    for (let code = 0; code < total; code++) {
+      let c = code;
+      for (let i = n - 1; i >= 0; i--) { a[i] = (c % 6) + 1; c = Math.floor(c / 6); }
+      exhaustBoards++;
+      if (!ruleAgrees(a)) exhaustBad++;
+    }
+  }
+  if (exhaustBad !== 0) fail(`可读奇偶规则与求解器不符（穷举 ${exhaustBoards} 盘面，${exhaustBad} 个不符）`);
+
+  // ② 大值域随机盘面（规则不应只在小编号下成立）
+  let bigRuleChecked = 0, bigRuleBad = 0;
+  for (let k = 0; k < 20000; k++) {
+    const n = 1 + Math.floor(Math.random() * 40);
+    const a = [];
+    for (let i = 0; i < n; i++) a.push(1 + Math.floor(Math.random() * 1e6));
+    bigRuleChecked++;
+    if (!ruleAgrees(a)) {
+      bigRuleBad++;
+      if (bigRuleBad === 1) fail(`可读奇偶规则在大值域盘面 ${JSON.stringify(a)} 上不符`);
+    }
+  }
+
+  // ── I-2 出盘权重：穷举 rand 网格求精确概率 ─────────────────
+  const GRID = 100000;
+  const counts = new Map();
+  for (let k = 0; k < GRID; k++) {
+    const v = spawn.pickPlateCount((k + 0.5) / GRID);
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  const keys = [...counts.keys()].sort((x, y) => x - y);
+  const pOf = (v) => (counts.get(v) || 0) / GRID;
+  const BASE_P = 1 / 6;
+
+  // 值域必须恰好是 1..6，每个点数都要能抽到（防止权重写错把某档掐死）
+  if (keys.length !== 6 || keys[0] !== 1 || keys[5] !== 6) {
+    fail(`出盘点数值域异常：期望 1..6，实际 [${keys.join(', ')}]`);
+  }
+  // 概率和必须为 1
+  const pSum = keys.reduce((s, v) => s + pOf(v), 0);
+  if (Math.abs(pSum - 1) > 1e-3) fail(`出盘概率和不为 1：${pSum.toFixed(6)}`);
+
+  // 核心断言：a_i = 1 的概率 = 20%，相对基准 1/6 提升 20%
+  const pOne = pOf(1);
+  const boostRatio = pOne / BASE_P;
+  if (Math.abs(pOne - 0.2) > 1e-3) {
+    fail(`a_i = 1 的出现率应为 20%，实际 ${(pOne * 100).toFixed(2)}%`
+      + `（ONE_MUSHROOM_BOOST = ${spawn.ONE_MUSHROOM_BOOST}）`);
+  }
+  if (boostRatio < 1.15 || boostRatio > 1.25) {
+    fail(`a_i = 1 的提升幅度应约 20%，实际为基准的 ${(boostRatio * 100).toFixed(1)}%`);
+  }
+  // 其余五档必须等概率（避免"提了 1 档却把别的档顺手压歪"）
+  for (let v = 2; v <= 6; v++) {
+    if (Math.abs(pOf(v) - 0.8 / 5) > 1e-3) {
+      fail(`点数 ${v} 的概率应等比吸收后为 16%，实际 ${(pOf(v) * 100).toFixed(2)}%`);
+    }
+  }
+  // 抽样器单调性：累积分布映射出的结果必须随 rand 单调不减（否则会出现"随机数越大点数越小"）
+  let lastVal = -Infinity, monotone = true;
+  for (let k = 0; k < 5000; k++) {
+    const v = spawn.pickPlateCount(k / 5000);
+    if (v < lastVal) monotone = false;
+    lastVal = v;
+  }
+  if (!monotone) fail('出盘抽样器非单调：rand 增大时点数反而变小');
+
+  // 盘子数取值域：钉死产品契约 n ∈ [3,5]（字面量，不是拿 MIN_PLATES/PLATE_SPAN 自证 ——
+  // 那样的断言是恒真式：把上界从 3 悄悄改成 2 也照样通过）。
+  // 若确实要改开盘盘子数，这里会失败，属于"故意让测试提醒你同步文档与 README"。
+  const ns = new Set();
+  for (let k = 0; k < GRID; k++) ns.add(spawn.MIN_PLATES + Math.floor(((k + 0.5) / GRID) * spawn.PLATE_SPAN));
+  const nsSorted = [...ns].sort((x, y) => x - y);
+  const EXPECTED_PLATE_RANGE = [3, 4, 5];
+  if (nsSorted.length !== EXPECTED_PLATE_RANGE.length
+    || nsSorted.some((v, i) => v !== EXPECTED_PLATE_RANGE[i])) {
+    fail(`开盘盘子数取值域应为 [${EXPECTED_PLATE_RANGE.join(', ')}]，实际 [${nsSorted.join(', ')}]`
+      + '（若是有意修改，请同步更新断言与 README）');
+  }
+
+  spawnStats = {
+    pOne, boostRatio, exhaustBoards, bigRuleChecked,
+    plateRange: `${nsSorted[0]}~${nsSorted[nsSorted.length - 1]}`,
+    // 报告行必须反映真实结果：早先这里写死了 "✓ ...完全一致"，
+    // 于是断言失败时报表格依然显示通过 —— 一份永远显示成功的报告比没有报告更糟。
+    ruleOk: exhaustBad === 0 && bigRuleBad === 0,
+    ruleBad: exhaustBad + bigRuleBad,
+    plateRangeOk: nsSorted.length === EXPECTED_PLATE_RANGE.length
+      && nsSorted.every((v, i) => v === EXPECTED_PLATE_RANGE[i]),
+  };
+}
+
 /* ── 报告 ─────────────────────────────────────────────────── */
 console.log('── 验证报告 ─────────────────────────────────');
 console.log(`  抽取代码块字符数        : ${match[1].length}`);
@@ -356,6 +491,15 @@ console.log(`  认输门控流程断言        : ${flow.filter((c) => c.ok).leng
 console.log(`  洛谷官方样例对拍        : ${samplePass}/${LUOGU_SAMPLES.length}`);
 console.log(`  发布副本 (site/) 一致性 : ${siteInSync === null ? '— 未使用（无 site/ 目录）'
   : siteInSync ? '✓ 与根 index.html 逐字节一致' : '✗ 已过期，发布前必须同步'}`);
+console.log(spawnStats
+  ? `  可读奇偶规则交叉验证    : ${spawnStats.ruleOk ? '✓' : `✗ ${spawnStats.ruleBad} 个盘面不符`}`
+    + ` 穷举 ${spawnStats.exhaustBoards} 盘面 (n≤6,a≤6) + 随机大值域 ${spawnStats.bigRuleChecked} 盘面`
+  : '  可读奇偶规则交叉验证    : — 未执行（缺 MUSHROOM-SPAWN 块）');
+console.log(spawnStats
+  ? `  出盘「1 蘑菇」出现率    : ${(spawnStats.pOne * 100).toFixed(2)}%`
+    + `（基准 16.67% 的 ${(spawnStats.boostRatio * 100).toFixed(1)}%），`
+    + `盘子数 n ∈ ${spawnStats.plateRange}${spawnStats.plateRangeOk ? '' : ' ✗'}`
+  : '  出盘「1 蘑菇」出现率    : — 未执行');
 console.log(failures === 0
   ? '  结果                    : ✓ 全部通过，AI 走法在所有被检状态上均为最优，认输门控行为正确'
   : `  结果                    : ✗ 失败 ${failures} 项`);

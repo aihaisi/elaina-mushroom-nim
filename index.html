@@ -295,6 +295,17 @@
         //   lose[n] = true          —— 盘面已空，无子可取者判负（即上一个取子的人赢）
         //   lose[j] = (a[j] === 1) ? !lose[j + 1] : false
         // 直觉：盘子 > 1 说明这里的人握着主动权；盘子 == 1 只能把局面"传给"下一盘。
+        //
+        // 把上面这条递推展开，得到一条【人能直接用的规则】—— 只看紧跟其后的连续
+        // 「1 蘑菇盘」有多长（设长度为 r）：
+        //   a[j] >= 2                                → 这里必胜（取空 或 留 1，二选一）
+        //   a[j] === 1 且这条 1 链被某个 >=2 的盘截断 → 必败当且仅当 r 为奇数
+        //   a[j] === 1 且这条 1 链一直延伸到盘尾      → 必败当且仅当 r 为偶数
+        //   （末尾全为 1 时奇偶反过来，因为"盘空判负"把基准翻转了一次）
+        // 实战含义：面对一个 >=2 的盘，你只需要数后面连着几个"只有 1 个蘑菇"的盘 ——
+        // 奇数就一次取空、偶数就只留 1 个。这也是本作"转机"全在 1 蘑菇盘上的原因：
+        // 它们本身没有选择，却单方面决定了前面那手唯一正确的走法。
+        // （该规则与求解器的等价性由 verify-ai.mjs 的 I 节穷举钉住。）
         function computeLosingFlags(plates) {
             const n = plates.length;
             const lose = new Array(n + 1);
@@ -335,6 +346,43 @@
         }
         /* ==== MUSHROOM-SOLVER END ==== */
 
+        /* ==== MUSHROOM-SPAWN BEGIN ==== */
+        // ── 出盘分布（唯一的调参入口）────────────────────────────────────────
+        // 本作的"转机"全在「只剩 1 个蘑菇」的盘子上：
+        //   · a[j] === 1 的盘轮到时无子可选，只能取走 —— 它本身不产生决策点；
+        //   · 但连续几条这样的盘串起来，恰恰决定了前面某个 >= 2 的盘
+        //     该"取空"还是"只留 1 个"（判据见下方 SOLVER 块与 verify-ai.mjs 的 H 节）。
+        // 所以把 a_i === 1 的出现率从基准的 1/6 上调 20%（1/6 → 1/5），
+        // 其余点数等比例吸收，总概率仍为 1。
+        const ONE_MUSHROOM_BOOST = 1.25;   // 权重倍率；1.25 ⇒ P(a_i = 1) = 1.25 / 6.25 = 20.0%
+
+        // 生成 a_i 的抽样器。把权重表折成累积分布，一个 rand ∈ [0,1) 直接映射出点数。
+        // 做成纯函数（rand 由外部传入）是为了让验证器能穷举 rand 求出精确概率，
+        // 而不是靠统计抽样 —— 统计抽样会带来随机失败的假警报。
+        function buildCountPicker(minCount, maxCount, oneBoost) {
+            const weights = [];
+            for (let v = minCount; v <= maxCount; v++) {
+                weights.push(v === minCount ? oneBoost : 1);
+            }
+            const total = weights.reduce((sum, w) => sum + w, 0);
+            const cumulative = [];
+            let acc = 0;
+            for (const w of weights) {
+                acc += w / total;
+                cumulative.push(acc);
+            }
+            return function pickCount(rand) {
+                for (let i = 0; i < cumulative.length; i++) {
+                    if (rand < cumulative[i]) return minCount + i;
+                }
+                return maxCount;
+            };
+        }
+
+        const pickPlateCount = buildCountPicker(1, 6, ONE_MUSHROOM_BOOST);
+        const MIN_PLATES = 3, PLATE_SPAN = 3;   // 盘子数 n ∈ [3, 5]
+        /* ==== MUSHROOM-SPAWN END ==== */
+
         function initGame() {
             isGameOver = false;
             isAnimating = false;
@@ -346,10 +394,10 @@
             document.getElementById('btn-surrender').style.display = 'none'; 
             document.getElementById('log').innerHTML = '';
             
-            const n = Math.floor(Math.random() * 3) + 3; 
+            const n = MIN_PLATES + Math.floor(Math.random() * PLATE_SPAN);
             plates = [];
             for (let i = 0; i < n; i++) {
-                plates.push(Math.floor(Math.random() * 6) + 1);
+                plates.push(pickPlateCount(Math.random()));
             }
 
             updateStatus();
