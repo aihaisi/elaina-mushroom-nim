@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>伊蕾娜的蘑菇博弈</title>
     <style>
+        /* 移动端适配：统一 border-box，否则「固定宽度 + padding」会撑破手机视口 */
+        *, *::before, *::after { box-sizing: border-box; }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f4f7f6;
@@ -14,9 +17,16 @@
             justify-content: center;
             min-height: 100vh;
             margin: 0;
+            padding: 0 12px;
             color: #333;
+            /* 兜底：任何一处意外超宽都不产生横向滚动条 */
+            overflow-x: hidden;
         }
-        h1 { color: #2c3e50; margin-bottom: 10px; }
+        /* 所有直接子块都不超过视口宽度 —— body 是居中布局，一旦子元素超宽，
+           超出部分会往两侧滑出屏幕（表现为左边缘被切掉），这是最难排查的一类偏移 */
+        body > * { max-width: 100%; }
+
+        h1 { color: #2c3e50; margin-bottom: 10px; font-size: clamp(20px, 6vw, 32px); text-align: center; }
         
         .rules {
             background-color: #fff;
@@ -25,6 +35,7 @@
             border-radius: 8px;
             margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            width: 100%;
             max-width: 500px;
             font-size: 14px;
             color: #555;
@@ -40,14 +51,19 @@
         #status.elaina-turn { background-color: #d4edda; color: #155724; }
         #status.fran-turn { background-color: #f8d7da; color: #721c24; }
         
+        /* 盘子尺寸随视口缩放：原来固定 80px 宽（加 padding/border 实际 106px），
+           5 个盘子要 590px，在 390px 宽的手机上必然溢出。
+           clamp 的上限刻意取回原值，保证桌面端版式与改动前完全一致。 */
         #plates-container {
-            display: flex; gap: 15px; margin-bottom: 20px; min-height: 120px;
+            display: flex; flex-wrap: wrap; justify-content: center;
+            gap: clamp(6px, 2vw, 15px); margin-bottom: 20px; min-height: 120px;
+            width: 100%;
         }
         .plate {
-            width: 80px; min-height: 100px; background-color: #fff;
-            border: 3px solid #bdc3c7; border-radius: 12px;
+            width: clamp(54px, 16vw, 106px); min-height: 100px; background-color: #fff;
+            border: clamp(2px, 0.4vw, 3px) solid #bdc3c7; border-radius: 12px;
             display: flex; flex-wrap: wrap; align-content: flex-start;
-            justify-content: center; padding: 10px; gap: 4px;
+            justify-content: center; padding: clamp(5px, 1.6vw, 10px); gap: 4px;
             transition: all 0.3s; position: relative;
         }
         .plate.active {
@@ -60,7 +76,10 @@
             transform: translateY(-8px) scale(1.05);
         }
         .plate.disabled { opacity: 0.5; }
-        .mushroom { font-size: 20px; animation: pop-in 0.3s ease-out; }
+        /* 注意：emoji 的实际占宽约为字号的 1.17 倍，比按字号估算的更宽。
+           按 clamp(15px,…) 时 62px 的盘子一行只放得下 1 个蘑菇，
+           6 个蘑菇会被排成 6 行、盘子被拉成细长条；降到 13px 才能稳定 2 个一行。 */
+        .mushroom { font-size: clamp(13px, 3.6vw, 20px); line-height: 1; animation: pop-in 0.3s ease-out; }
         @keyframes pop-in {
             0% { transform: scale(0); }
             80% { transform: scale(1.2); }
@@ -68,7 +87,8 @@
         }
 
         #action-panel {
-            display: none; align-items: center; gap: 15px;
+            display: none; align-items: center; justify-content: center;
+            flex-wrap: wrap; gap: clamp(8px, 2vw, 15px);
             background: #fff; padding: 15px 25px; border-radius: 50px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px;
             border: 2px solid #3498db; animation: slide-down 0.3s ease-out;
@@ -100,7 +120,7 @@
         }
         #action-panel .cancel-btn:hover { background-color: #c0392b; }
 
-        #controls { display: flex; gap: 10px; margin-bottom: 20px; }
+        #controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 20px; width: 100%; }
         #controls button {
             padding: 10px 20px; font-size: 16px; border: none; border-radius: 8px;
             cursor: pointer; color: white; font-weight: bold; transition: all 0.2s;
@@ -116,9 +136,12 @@
         #btn-surrender:hover { opacity: 0.9; }
 
         #log {
-            width: 400px; height: 120px; overflow-y: auto; background: #fff;
+            /* 原来固定 400px 宽，叠加 padding 实际占 422px —— 手机上两侧都被切掉，
+               所以日志看起来"从屏幕外开始"。改为占满可用宽度、上限仍是 400px。 */
+            width: 100%; max-width: 400px; height: 120px; overflow-y: auto; background: #fff;
             border: 1px solid #ddd; border-radius: 8px; padding: 10px;
             font-size: 14px; line-height: 1.5;
+            overflow-wrap: anywhere;
         }
 
         /* 页面底部：原型题目出处 */
@@ -154,14 +177,13 @@
         }
         .modal-content {
             background-color: white;
-            padding: 40px;
+            padding: clamp(24px, 7vw, 40px);
             border-radius: 20px;
             text-align: center;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
             transform: scale(0.8);
             animation: scale-up 0.3s ease-out forwards;
-            max-width: 400px;
-            width: 80%;
+            width: min(400px, 88%);
         }
         @keyframes scale-up {
             to { transform: scale(1); }
@@ -176,6 +198,27 @@
             box-shadow: 0 4px 10px rgba(52, 152, 219, 0.4);
         }
         .modal-content .restart-modal-btn:hover { background-color: #2980b9; }
+
+        /* 窄屏（手机竖屏）微调：只收敛留白与字号，不改结构。
+           clamp() 已经把宽度管住了，这里解决的是"能放下但太挤"的观感问题。 */
+        @media (max-width: 520px) {
+            body { padding: 0 10px; }
+            .rules { padding: 10px 12px; font-size: 13px; margin-bottom: 14px; }
+            #status { font-size: 1.05em; padding: 8px 14px; margin-bottom: 14px; }
+            #plates-container { margin-bottom: 14px; min-height: 92px; }
+            .plate { min-height: 82px; }
+            #action-panel { padding: 10px 14px; border-radius: 16px; margin-bottom: 14px; }
+            #action-panel button { width: 36px; height: 36px; font-size: 18px; }
+            #action-panel .count-display { font-size: 20px; min-width: 32px; }
+            #action-panel .confirm-btn, #action-panel .cancel-btn { height: 36px; }
+            #controls button { padding: 9px 14px; font-size: 15px; }
+            #log { height: 96px; font-size: 13px; }
+            .modal-content h2 { font-size: 22px; }
+            .modal-content .result-icon { font-size: 46px; margin-bottom: 14px; }
+            .modal-content p { font-size: 14px; margin-bottom: 22px; }
+            .modal-content .restart-modal-btn { padding: 12px 30px; font-size: 16px; }
+            #problem-source { margin: 8px 0 24px; font-size: 12px; }
+        }
     </style>
 </head>
 <body>
