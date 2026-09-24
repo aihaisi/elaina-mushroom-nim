@@ -19,8 +19,9 @@
  *  G. 官方样例对拍 —— 与洛谷 U145698 题面给出的期望输出逐个比对（外部权威校验）。
  *  H. 发布副本一致性 —— site/index.html（线上发布源）必须与根 index.html 逐字节相同。
  *  I. 出盘分布与「1 蘑菇转机」—— ① 把求解器等价改写成可读规则（看紧随其后的连续
- *     1 蘑菇盘长度的奇偶）并交叉验证；② 断言 a_i = 1 的出现率确实被上调了 20%
- *     （穷举 rand 网格求精确概率，不用统计抽样，避免随机失败的假警报）。
+ *     1 蘑菇盘长度的奇偶）并交叉验证；② 断言 a_i = 1 的出现率 = 35%，
+ *     其余五档等概率吸收至各 13%（穷举 rand 网格求精确概率，不用统计抽样，
+ *     避免随机失败的假警报）。
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -358,7 +359,7 @@ if (existsSync(siteIndexPath)) {
  *       这条规则是"为什么 1 蘑菇盘是转机"的正式解释：轮到你面对一个 >=2 的盘时，
  *       要数的是紧随其后的连续 1 蘑菇盘长度 —— 奇数就取空，偶数就只留 1 个。
  *       （末尾全为 1 时奇偶反过来，因为盘空判负把基准翻转了一次。）
- *  I-2  断言 a_i = 1 的出现率确实比基准上调了 20%。
+ *  I-2  断言 a_i = 1 的出现率 = 35%（基准 1/6 的 210%），其余五档各 13%。
  *       概率用穷举 rand 网格求，而不是抽样统计：抽样的方差会让断言偶发失败，
  *       一个会随机变红的断言等于没有断言。
  */
@@ -369,7 +370,8 @@ if (!spawnMatch) {
   fail('未能在 index.html 中找到 MUSHROOM-SPAWN 代码块');
 } else {
   const spawn = new Function(`${spawnMatch[1]}
-    return { pickPlateCount, buildCountPicker, ONE_MUSHROOM_BOOST, MIN_PLATES, PLATE_SPAN };`)();
+    return { pickPlateCount, buildCountPicker, chanceToWeight,
+             ONE_MUSHROOM_CHANCE, ONE_MUSHROOM_BOOST, MIN_PLATES, PLATE_SPAN };`)();
 
   // ── I-1 可读规则 vs 求解器 ────────────────────────────────
   function runOfOnes(a, j) { let r = 0; while (j + r < a.length && a[j + r] === 1) r++; return r; }
@@ -430,21 +432,30 @@ if (!spawnMatch) {
   const pSum = keys.reduce((s, v) => s + pOf(v), 0);
   if (Math.abs(pSum - 1) > 1e-3) fail(`出盘概率和不为 1：${pSum.toFixed(6)}`);
 
-  // 核心断言：a_i = 1 的概率 = 20%，相对基准 1/6 提升 20%
+  // 钉死产品契约的字面量 —— 故意不引用 spawn.ONE_MUSHROOM_CHANCE：
+  // 拿配置常量去断言配置常量是恒真式（改配置时断言跟着一起变，永远通过），
+  // 上一轮的盘子数断言就踩过这个坑。要改概率，就得连这里一起改，是被刻意设计的摩擦。
+  const EXPECTED_ONE_CHANCE = 0.35;                       // P(a_i = 1) = 35%
+  const EXPECTED_OTHER_CHANCE = (1 - EXPECTED_ONE_CHANCE) / 5;   // 其余五档各 13%
+
   const pOne = pOf(1);
   const boostRatio = pOne / BASE_P;
-  if (Math.abs(pOne - 0.2) > 1e-3) {
-    fail(`a_i = 1 的出现率应为 20%，实际 ${(pOne * 100).toFixed(2)}%`
-      + `（ONE_MUSHROOM_BOOST = ${spawn.ONE_MUSHROOM_BOOST}）`);
-  }
-  if (boostRatio < 1.15 || boostRatio > 1.25) {
-    fail(`a_i = 1 的提升幅度应约 20%，实际为基准的 ${(boostRatio * 100).toFixed(1)}%`);
+  if (Math.abs(pOne - EXPECTED_ONE_CHANCE) > 1e-3) {
+    fail(`a_i = 1 的出现率应为 ${(EXPECTED_ONE_CHANCE * 100).toFixed(2)}%，实际 ${(pOne * 100).toFixed(2)}%`
+      + `（ONE_MUSHROOM_CHANCE = ${spawn.ONE_MUSHROOM_CHANCE}，`
+      + `ONE_MUSHROOM_BOOST = ${spawn.ONE_MUSHROOM_BOOST.toFixed(4)}）`);
   }
   // 其余五档必须等概率（避免"提了 1 档却把别的档顺手压歪"）
   for (let v = 2; v <= 6; v++) {
-    if (Math.abs(pOf(v) - 0.8 / 5) > 1e-3) {
-      fail(`点数 ${v} 的概率应等比吸收后为 16%，实际 ${(pOf(v) * 100).toFixed(2)}%`);
+    if (Math.abs(pOf(v) - EXPECTED_OTHER_CHANCE) > 1e-3) {
+      fail(`点数 ${v} 的概率应等比吸收后为 ${(EXPECTED_OTHER_CHANCE * 100).toFixed(2)}%，`
+        + `实际 ${(pOf(v) * 100).toFixed(2)}%`);
     }
+  }
+  // 「目标概率 → 权重倍率」的反解必须自洽（35% ⇒ 35/13，最容易在这一步算错）
+  const sanityWeight = spawn.chanceToWeight(EXPECTED_ONE_CHANCE, 1, 6);
+  if (Math.abs(sanityWeight - 35 / 13) > 1e-9) {
+    fail(`chanceToWeight(0.35) 应为 35/13 ≈ 2.6923，实际 ${sanityWeight}`);
   }
   // 抽样器单调性：累积分布映射出的结果必须随 rand 单调不减（否则会出现"随机数越大点数越小"）
   let lastVal = -Infinity, monotone = true;
@@ -497,7 +508,7 @@ console.log(spawnStats
   : '  可读奇偶规则交叉验证    : — 未执行（缺 MUSHROOM-SPAWN 块）');
 console.log(spawnStats
   ? `  出盘「1 蘑菇」出现率    : ${(spawnStats.pOne * 100).toFixed(2)}%`
-    + `（基准 16.67% 的 ${(spawnStats.boostRatio * 100).toFixed(1)}%），`
+    + `（基准 1/6 = 16.67% 的 ${(spawnStats.boostRatio * 100).toFixed(1)}%），`
     + `盘子数 n ∈ ${spawnStats.plateRange}${spawnStats.plateRangeOk ? '' : ' ✗'}`
   : '  出盘「1 蘑菇」出现率    : — 未执行');
 console.log(failures === 0
