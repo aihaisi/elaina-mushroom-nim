@@ -11,3 +11,7 @@ Thumbs.db
 node_modules/
 *.log
 npm-debug.log*
+
+# 发布应用的本地标记文件（WorkBuddy 内部产物，不属于项目内容）
+.wbapp_*
+*.genie

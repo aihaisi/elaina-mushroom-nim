@@ -19,9 +19,10 @@
  *  G. 官方样例对拍 —— 与洛谷 U145698 题面给出的期望输出逐个比对（外部权威校验）。
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const htmlPath = new URL('./index.html', import.meta.url);
+const siteIndexPath = new URL('./site/index.html', import.meta.url);
 const html = readFileSync(htmlPath, 'utf8');
 
 const blockRe = /\/\* ==== MUSHROOM-SOLVER BEGIN ==== \*\/([\s\S]*?)\/\* ==== MUSHROOM-SOLVER END ==== \*\//;
@@ -327,6 +328,23 @@ if (!footerMatch) {
   }
 }
 
+/* ══ H：发布副本一致性（site/ 是线上发布源）═════════════════════
+ * 线上站点发布的是 site/ 目录，不是项目根目录 —— 根目录含 .workbuddy/（项目记忆），
+ * 直接发布会把内部笔记暴露成公开可下载的文件。
+ * 代价是出现两份 index.html，故此处把"漂移"钉成断言：不一致即失败。
+ * 修法：cp index.html site/index.html
+ */
+let siteInSync = null;
+if (existsSync(siteIndexPath)) {
+  const rootBuf = readFileSync(htmlPath);
+  const siteBuf = readFileSync(siteIndexPath);
+  siteInSync = rootBuf.equals(siteBuf);
+  if (!siteInSync) {
+    fail(`发布副本已过期：site/index.html 与 index.html 不一致`
+      + `（根 ${rootBuf.length}B / 副本 ${siteBuf.length}B）→ 运行 cp index.html site/index.html`);
+  }
+}
+
 /* ── 报告 ─────────────────────────────────────────────────── */
 console.log('── 验证报告 ─────────────────────────────────');
 console.log(`  抽取代码块字符数        : ${match[1].length}`);
@@ -336,6 +354,8 @@ console.log(`  大规模自对弈局数        : ${bigGames}（n≤50，a_i≤1e
 console.log(`  边界用例                : ${edgeCases.length}`);
 console.log(`  认输门控流程断言        : ${flow.filter((c) => c.ok).length}/${flow.length} 通过`);
 console.log(`  洛谷官方样例对拍        : ${samplePass}/${LUOGU_SAMPLES.length}`);
+console.log(`  发布副本 (site/) 一致性 : ${siteInSync === null ? '— 未使用（无 site/ 目录）'
+  : siteInSync ? '✓ 与根 index.html 逐字节一致' : '✗ 已过期，发布前必须同步'}`);
 console.log(failures === 0
   ? '  结果                    : ✓ 全部通过，AI 走法在所有被检状态上均为最优，认输门控行为正确'
   : `  结果                    : ✗ 失败 ${failures} 项`);

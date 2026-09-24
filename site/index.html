@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>伊蕾娜的蘑菇博弈</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+        h1 { color: #2c3e50; margin-bottom: 10px; }
+        
+        .rules {
+            background-color: #fff;
+            border-left: 5px solid #3498db;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            max-width: 500px;
+            font-size: 14px;
+            color: #555;
+            line-height: 1.6;
+        }
+        .rules strong { color: #e74c3c; }
+
+        #status {
+            font-size: 1.2em; font-weight: bold; margin-bottom: 20px;
+            padding: 10px 20px; border-radius: 8px; background-color: #e0e0e0;
+            transition: background-color 0.3s;
+        }
+        #status.elaina-turn { background-color: #d4edda; color: #155724; }
+        #status.fran-turn { background-color: #f8d7da; color: #721c24; }
+        
+        #plates-container {
+            display: flex; gap: 15px; margin-bottom: 20px; min-height: 120px;
+        }
+        .plate {
+            width: 80px; min-height: 100px; background-color: #fff;
+            border: 3px solid #bdc3c7; border-radius: 12px;
+            display: flex; flex-wrap: wrap; align-content: flex-start;
+            justify-content: center; padding: 10px; gap: 4px;
+            transition: all 0.3s; position: relative;
+        }
+        .plate.active {
+            border-color: #f39c12; box-shadow: 0 0 15px rgba(243, 156, 18, 0.5);
+            cursor: pointer; transform: translateY(-5px);
+        }
+        .plate.active:hover { background-color: #fffaf0; }
+        .plate.selected {
+            border-color: #3498db; box-shadow: 0 0 20px rgba(52, 152, 219, 0.6);
+            transform: translateY(-8px) scale(1.05);
+        }
+        .plate.disabled { opacity: 0.5; }
+        .mushroom { font-size: 20px; animation: pop-in 0.3s ease-out; }
+        @keyframes pop-in {
+            0% { transform: scale(0); }
+            80% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        #action-panel {
+            display: none; align-items: center; gap: 15px;
+            background: #fff; padding: 15px 25px; border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px;
+            border: 2px solid #3498db; animation: slide-down 0.3s ease-out;
+        }
+        @keyframes slide-down {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        #action-panel button {
+            width: 40px; height: 40px; border-radius: 50%; border: none;
+            font-size: 20px; font-weight: bold; cursor: pointer;
+            background-color: #ecf0f1; color: #2c3e50; transition: background-color 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #action-panel button:hover:not(:disabled) { background-color: #dcdde1; }
+        #action-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
+        #action-panel .count-display {
+            font-size: 24px; font-weight: bold; color: #3498db;
+            min-width: 40px; text-align: center;
+        }
+        #action-panel .confirm-btn {
+            width: auto; padding: 0 20px; height: 40px; border-radius: 20px;
+            background-color: #3498db; color: white; font-size: 16px;
+        }
+        #action-panel .confirm-btn:hover { background-color: #2980b9; }
+        #action-panel .cancel-btn {
+            width: auto; padding: 0 15px; height: 40px; border-radius: 20px;
+            background-color: #e74c3c; color: white; font-size: 14px;
+        }
+        #action-panel .cancel-btn:hover { background-color: #c0392b; }
+
+        #controls { display: flex; gap: 10px; margin-bottom: 20px; }
+        #controls button {
+            padding: 10px 20px; font-size: 16px; border: none; border-radius: 8px;
+            cursor: pointer; color: white; font-weight: bold; transition: all 0.2s;
+        }
+        #btn-restart { background-color: #e74c3c; }
+        #btn-restart:hover { background-color: #c0392b; }
+        
+        /* 认输按钮动态样式 */
+        #btn-surrender {
+            background-color: #8e44ad; /* 默认紫色 */
+            display: none;
+        }
+        #btn-surrender:hover { opacity: 0.9; }
+
+        #log {
+            width: 400px; height: 120px; overflow-y: auto; background: #fff;
+            border: 1px solid #ddd; border-radius: 8px; padding: 10px;
+            font-size: 14px; line-height: 1.5;
+        }
+
+        /* 页面底部：原型题目出处 */
+        #problem-source {
+            margin: 10px 0 36px; font-size: 13px; color: #7f8c8d;
+            letter-spacing: 0.2px; text-align: center;
+        }
+        #problem-source a {
+            color: #3498db; text-decoration: none;
+            border-bottom: 1px dashed rgba(52, 152, 219, 0.55);
+            transition: color 0.2s, border-bottom-color 0.2s;
+        }
+        #problem-source a:hover {
+            color: #2980b9; border-bottom-style: solid;
+            border-bottom-color: #2980b9;
+        }
+        #problem-source .source-line { display: block; }
+        #problem-source .source-line + .source-line { margin-top: 5px; }
+
+        /* 游戏结算弹窗 */
+        #game-over-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center; align-items: center;
+            z-index: 1000;
+            animation: fade-in 0.3s ease-out;
+        }
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .modal-content {
+            background-color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transform: scale(0.8);
+            animation: scale-up 0.3s ease-out forwards;
+            max-width: 400px;
+            width: 80%;
+        }
+        @keyframes scale-up {
+            to { transform: scale(1); }
+        }
+        .modal-content .result-icon { font-size: 60px; margin-bottom: 20px; display: block; }
+        .modal-content h2 { margin: 0 0 10px 0; color: #2c3e50; font-size: 28px; }
+        .modal-content p { color: #7f8c8d; margin-bottom: 30px; font-size: 16px; line-height: 1.5; }
+        .modal-content .restart-modal-btn {
+            background-color: #3498db; color: white; border: none;
+            padding: 15px 40px; font-size: 18px; border-radius: 30px;
+            cursor: pointer; font-weight: bold; transition: background-color 0.2s;
+            box-shadow: 0 4px 10px rgba(52, 152, 219, 0.4);
+        }
+        .modal-content .restart-modal-btn:hover { background-color: #2980b9; }
+    </style>
+</head>
+<body>
+
+    <h1>🍄 伊蕾娜的蘑菇博弈 🍄</h1>
+    
+    <div class="rules">
+        <strong>游戏规则：</strong>盘子从左到右依次解锁，只有当前最左侧未空的盘子可以取，该盘取空后才能动下一个。每次至少取 1 个，最多取走该盘全部蘑菇。<br>
+        <strong>看穿认输：</strong>有些开局先手必败。在你走出第一步之前，可以点【认输】声明"我看穿了"——判对算你赢，判错算你输；只要走过任意一步，认输资格就作废。<br>
+        <strong>胜利条件：</strong>谁取走最后一个蘑菇，谁就获得胜利！</div>
+
+    <div id="status" class="elaina-turn">当前回合：伊蕾娜 (先手)</div>
+
+    <div id="plates-container"></div>
+
+    <div id="action-panel">
+        <button id="btn-minus" onclick="adjustCount(-1)">-</button>
+        <span class="count-display" id="count-display">1</span>
+        <button id="btn-plus" onclick="adjustCount(1)">+</button>
+        <button class="confirm-btn" onclick="confirmMove()">取走</button>
+        <button class="cancel-btn" onclick="cancelSelection()">取消</button>
+    </div>
+
+    <div id="controls">
+        <button id="btn-restart" onclick="initGame()">重新开始</button>
+        <button id="btn-surrender" onclick="playerSurrender()">认输</button>
+    </div>
+
+    <div id="log"></div>
+
+    <footer id="problem-source">
+        <span class="source-line">
+            原型题目来自洛谷：
+            <a href="https://www.luogu.com.cn/problem/U145698" target="_blank" rel="noopener noreferrer">U145698 · C. 伊蕾娜取蘑菇</a>
+        </span>
+        <span class="source-line">
+            项目源码托管于 GitHub：
+            <a href="https://github.com/aihaisi/elaina-mushroom-nim" target="_blank" rel="noopener noreferrer">aihaisi/elaina-mushroom-nim</a>
+        </span>
+    </footer>
+
+    <div id="game-over-modal">
+        <div class="modal-content">
+            <span class="result-icon" id="result-icon">🎉</span>
+            <h2 id="result-title">伊蕾娜获胜！</h2>
+            <p id="result-desc">芙兰老师要吃掉所有蘑菇了！</p>
+            <button class="restart-modal-btn" onclick="initGame()">再来一局</button>
+        </div>
+    </div>
+
+    <script>
+        let plates = [];
+        let currentPlayer = 'Elaina';
+        let isGameOver = false;
+        let isAnimating = false;
+        let selectedPlateIndex = -1;
+        let selectedCount = 1;
+        let moveCount = 0;            // 已走步数：一旦 > 0，就永久失去「看穿认输」的资格
+
+        /* ==== MUSHROOM-SOLVER BEGIN ==== */
+        // ── 顺序取蘑菇（Sequential Nim）最优解 ──────────────────────────────
+        // 盘子是串行解锁的，所以整局游戏的状态只剩「当前盘还剩几个」这一个变量。
+        //
+        // 关键结论（博弈树归纳可证，见 verify-ai.mjs 的穷举交叉验证）：
+        //   1) 当前盘剩余 m >= 2 时，轮到的人【必胜】：
+        //      对手下一步要么面临一个"开局必败"的盘子（那就一次取空），
+        //      要么被顶在"只剩 1 个"上（那就只留 1 个），二者必居其一。
+        //   2) 当前盘剩余 m == 1 时没有选择，只能取走这个，
+        //      胜负完全取决于「下一个盘子的开局对对手是输是赢」。
+        // 推论：必败态必然是 m == 1，且走法唯一 —— 所以"最优 AI"不存在
+        //      "必败时随机捣乱"的自由度，每一步都被唯一确定。
+        //
+        // 记 lose[j] = 「轮到某人从第 j 个盘子开始处理（该盘满额 a[j]）时，他必输」：
+        //   lose[n] = true          —— 盘面已空，无子可取者判负（即上一个取子的人赢）
+        //   lose[j] = (a[j] === 1) ? !lose[j + 1] : false
+        // 直觉：盘子 > 1 说明这里的人握着主动权；盘子 == 1 只能把局面"传给"下一盘。
+        function computeLosingFlags(plates) {
+            const n = plates.length;
+            const lose = new Array(n + 1);
+            lose[n] = true;
+            for (let j = n - 1; j >= 0; j--) {
+                lose[j] = (plates[j] === 1) ? !lose[j + 1] : false;
+            }
+            return lose;
+        }
+
+        // 给定盘面 + 可操作的盘子下标 + 该盘剩余数量，返回本步的最优判断与走法
+        function analyzePosition(plates, activeIndex, remaining) {
+            const n = plates.length;
+            if (activeIndex === undefined) {
+                activeIndex = plates.findIndex(count => count > 0);
+            }
+            if (activeIndex === -1 || activeIndex >= n) {
+                return { over: true, activeIndex: -1, remaining: 0, canWin: false, move: 0 };
+            }
+            if (remaining === undefined) remaining = plates[activeIndex];
+
+            const lose = computeLosingFlags(plates);
+            // 下一个盘子的开局对对手是必败态 → 直接把整个盘子取空，把这个必败态丢给他
+            const nextIsLosing = lose[activeIndex + 1] === true;
+
+            const canWin = (remaining >= 2) || nextIsLosing;
+
+            let move;
+            if (!canWin) {
+                move = 1;                                         // 必败态：唯一合法走法
+            } else if (remaining >= 2) {
+                move = nextIsLosing ? remaining : remaining - 1;  // 要么取空，要么只留 1 个顶住
+            } else {
+                move = 1;                                         // 只剩 1 个，被顶住了，只能取走
+            }
+
+            return { over: false, activeIndex, remaining, canWin, move };
+        }
+        /* ==== MUSHROOM-SOLVER END ==== */
+
+        function initGame() {
+            isGameOver = false;
+            isAnimating = false;
+            currentPlayer = 'Elaina';
+            selectedPlateIndex = -1;
+            moveCount = 0;
+            document.getElementById('game-over-modal').style.display = 'none';
+            document.getElementById('action-panel').style.display = 'none';
+            document.getElementById('btn-surrender').style.display = 'none'; 
+            document.getElementById('log').innerHTML = '';
+            
+            const n = Math.floor(Math.random() * 3) + 3; 
+            plates = [];
+            for (let i = 0; i < n; i++) {
+                plates.push(Math.floor(Math.random() * 6) + 1);
+            }
+
+            updateStatus();
+            renderBoard();
+            addLog(`游戏开始！盘子状态: [${plates.join(', ')}]`);
+        }
+
+        // 开局是否必败（供「看穿认输」结算）——纯位置查询，刻意不带 isGameOver 守卫：
+        // 若带守卫，调用方"先置 isGameOver 再查询"就会恒得 false，把「判胜」写成死代码。
+        function openingIsLosing() {
+            const info = analyzePosition(plates);
+            return !info.over && !info.canWin;
+        }
+
+        function renderBoard() {
+            const container = document.getElementById('plates-container');
+            container.innerHTML = '';
+            let activeIndex = plates.findIndex(count => count > 0);
+
+            // 认输按钮 = 「看穿」声明，只在开局你还没动过任何一步时开放。
+            // 文案必须中性（必胜局与必败局显示完全一致），否则按钮本身就成了答案播报器。
+            const btnSurrender = document.getElementById('btn-surrender');
+            const canSurrender = currentPlayer === 'Elaina' && !isGameOver && !isAnimating && moveCount === 0;
+            if (canSurrender) {
+                btnSurrender.style.display = 'inline-block';
+                btnSurrender.textContent = '认输：我看出这局必败';
+                btnSurrender.style.backgroundColor = '#8e44ad'; // 紫色，理智的判断
+            } else {
+                btnSurrender.style.display = 'none';
+            }
+
+            plates.forEach((count, index) => {
+                const plateDiv = document.createElement('div');
+                plateDiv.className = 'plate';
+                
+                if (index === activeIndex && currentPlayer === 'Elaina' && !isGameOver && !isAnimating) {
+                    plateDiv.classList.add('active');
+                    if (selectedPlateIndex === index) {
+                        plateDiv.classList.add('selected');
+                    }
+                    plateDiv.onclick = () => selectPlate(index);
+                } else {
+                    plateDiv.classList.add('disabled');
+                }
+
+                for (let i = 0; i < count; i++) {
+                    const mushroom = document.createElement('span');
+                    mushroom.className = 'mushroom';
+                    mushroom.textContent = '🍄';
+                    plateDiv.appendChild(mushroom);
+                }
+                container.appendChild(plateDiv);
+            });
+        }
+
+        function selectPlate(index) {
+            if (isGameOver || isAnimating || currentPlayer !== 'Elaina') return;
+            selectedPlateIndex = index;
+            selectedCount = 1;
+            renderBoard();
+            updateActionPanel();
+        }
+
+        function updateActionPanel() {
+            if (selectedPlateIndex === -1) {
+                document.getElementById('action-panel').style.display = 'none';
+                return;
+            }
+            const panel = document.getElementById('action-panel');
+            panel.style.display = 'flex';
+            const maxCount = plates[selectedPlateIndex];
+            document.getElementById('count-display').textContent = selectedCount;
+            document.getElementById('btn-minus').disabled = (selectedCount <= 1);
+            document.getElementById('btn-plus').disabled = (selectedCount >= maxCount);
+        }
+
+        function adjustCount(delta) {
+            if (selectedPlateIndex === -1) return;
+            const maxCount = plates[selectedPlateIndex];
+            selectedCount = Math.max(1, Math.min(maxCount, selectedCount + delta));
+            updateActionPanel();
+        }
+
+        function cancelSelection() {
+            selectedPlateIndex = -1;
+            document.getElementById('action-panel').style.display = 'none';
+            renderBoard();
+        }
+
+        function confirmMove() {
+            if (selectedPlateIndex === -1) return;
+            const index = selectedPlateIndex;
+            const count = selectedCount;
+            
+            document.getElementById('action-panel').style.display = 'none';
+            selectedPlateIndex = -1;
+            
+            playerMove(index, count);
+        }
+
+        function playerMove(index, count) {
+            isAnimating = true;
+            moveCount++;
+            addLog(`伊蕾娜取走了 ${count} 个蘑菇。`);
+            plates[index] -= count;
+            
+            if (checkGameOver('Elaina')) return;
+
+            currentPlayer = 'Fran';
+            updateStatus();
+            renderBoard(); 
+
+            setTimeout(aiTurn, 1000);
+        }
+
+        function aiTurn() {
+            if (isGameOver) return;
+
+            // 芙兰老师始终执行最优策略：每步都是唯一确定的（必胜步 or 被顶住的唯一合法步）
+            const info = analyzePosition(plates);
+            if (info.over) return;
+
+            const takeCount = info.move;
+            addLog(`芙兰老师 (AI) 取走了 ${takeCount} 个蘑菇。`);
+            moveCount++;
+            plates[info.activeIndex] -= takeCount;
+
+            if (checkGameOver('Fran')) return;
+
+            currentPlayer = 'Elaina';
+            isAnimating = false; 
+            updateStatus();
+            renderBoard();
+        }
+
+        // 玩家认输 = 声明「我看穿了这局必败」，只在开局第一步之前有效
+        function playerSurrender() {
+            if (isGameOver || currentPlayer !== 'Elaina' || moveCount > 0) return;
+
+            // ⚠️ 判定必须在置 isGameOver 之前取：顺序写反会让「看穿必败」永远判不成赢
+            const sawThrough = openingIsLosing();
+
+            isGameOver = true;
+            document.getElementById('btn-surrender').style.display = 'none';
+
+            showGameOverModal(sawThrough ? 'Surrender_Win' : 'Surrender_Lose');
+        }
+
+        function checkGameOver(player) {
+            const totalRemaining = plates.reduce((sum, count) => sum + count, 0);
+            if (totalRemaining === 0) {
+                isGameOver = true;
+                isAnimating = false; 
+                renderBoard();
+                showGameOverModal(player);
+                return true;
+            }
+            return false;
+        }
+
+        function showGameOverModal(winner) {
+            const modal = document.getElementById('game-over-modal');
+            const icon = document.getElementById('result-icon');
+            const title = document.getElementById('result-title');
+            const desc = document.getElementById('result-desc');
+
+            if (winner === 'Elaina') {
+                icon.textContent = '🎉';
+                title.textContent = '伊蕾娜获胜！';
+                title.style.color = '#27ae60';
+                desc.textContent = '芙兰老师要吃掉所有蘑菇了！';
+                addLog('伊蕾娜取走了最后一个蘑菇，伊蕾娜获胜！');
+            } else if (winner === 'Fran') {
+                icon.textContent = '😢';
+                title.textContent = '芙兰老师获胜！';
+                title.style.color = '#c0392b';
+                desc.textContent = '伊蕾娜要吃掉所有蘑菇了...';
+                addLog('芙兰老师取走了最后一个蘑菇，芙兰老师获胜。');
+            } else if (winner === 'Surrender_Win') {
+                icon.textContent = '🤔';
+                title.textContent = '看穿了！';
+                title.style.color = '#8e44ad';
+                desc.textContent = '你在第一步之前就识别出：这局无论怎么走都赢不了，芙兰老师开局即锁定胜局。按规则，判定你获胜。';
+                addLog('伊蕾娜在第一步之前识破了必败的开局，判定伊蕾娜获胜！');
+            } else if (winner === 'Surrender_Lose') {
+                icon.textContent = '😅';
+                title.textContent = '看走眼了';
+                title.style.color = '#e67e22';
+                desc.textContent = '这局其实先手必胜——你有必胜的走法，却把它当作必败局认输了。按规则，判定你失败。';
+                addLog('伊蕾娜误判了开局，放弃了本该赢下的对局，判定芙兰老师获胜。');
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('status');
+            if (isGameOver) return;
+            if (currentPlayer === 'Elaina') {
+                statusDiv.textContent = '当前回合：伊蕾娜 (先手)';
+                statusDiv.className = 'elaina-turn';
+            } else {
+                statusDiv.textContent = '当前回合：芙兰老师 (AI)';
+                statusDiv.className = 'fran-turn';
+            }
+        }
+
+        function addLog(msg) {
+            const logDiv = document.getElementById('log');
+            const p = document.createElement('div');
+            p.textContent = `> ${msg}`;
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
